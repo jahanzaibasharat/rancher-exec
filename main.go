@@ -281,7 +281,7 @@ func ReadConfig() *Config {
 
 	app.Parse(os.Args[1:])
 
-	if *endpoint == "" || *user == "" || *password == "" || *container == "" {
+	if *endpoint == "" || *user == "" || *password == "" || *container == "" || *command =="" {
 		app.Usage(os.Args[1:])
 		os.Exit(1)
 	}
