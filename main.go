@@ -18,17 +18,17 @@ import (
 )
 
 const (
-	VERSION = "1.1.3"
-	AUTHOR  = "FANG LI <surivlee+rancherssh@gmail.com>"
+	VERSION = "1.0.0"
+	AUTHOR  = "MVLM <vladzikus@gmail.com>"
 	USAGE   = `
 Example:
-    rancherssh my-server-1
-    rancherssh "my-server*"  (equals to) rancherssh my-server%
-    rancherssh %proxy%
-    rancherssh "projectA-app-*" (equals to) rancherssh projectA-app-%
+    rancherexec my-server-1
+    rancherexec "my-server*"  (equals to) rancherexec my-server%
+    rancherexec %proxy%
+    rancherexec "projectA-app-*" (equals to) rancherexec projectA-app-%
 
 Configuration:
-    We read configuration from config.json or config.yml in ./, /etc/rancherssh/ and ~/.rancherssh/ folders.
+    We read configuration from config.json or config.yml in ./, /etc/rancherexec/ and ~/.rancherexec/ folders.
 
     If you want to use JSON format, create a config.json in the folders with content:
         {
@@ -50,6 +50,7 @@ Configuration:
 )
 
 type Config struct {
+	Command   string
 	Container string
 	Endpoint  string
 	User      string
@@ -216,14 +217,14 @@ func (r *RancherAPI) containerUrl(name string) string {
 		"/containers/%s/", ctn["id"].(string))
 }
 
-func (r *RancherAPI) getWsUrl(url string) string {
+func (r *RancherAPI) getWsUrl(url string, command string) string {
 	cols, rows, _ := terminal.GetSize(int(os.Stdin.Fd()))
 	req, _ := http.NewRequest("POST", url+"?action=execute",
 		strings.NewReader(fmt.Sprintf(
 			`{"attachStdin":true, "attachStdout":true,`+
 				`"command":["/bin/sh", "-c", "TERM=xterm-256color; export TERM; `+
 				`stty cols %d rows %d; `+
-				`[ -x /bin/bash ] && ([ -x /usr/bin/script ] && /usr/bin/script -q -c \"/bin/bash\" /dev/null || exec /bin/bash) || exec /bin/sh"], "tty":true}`, cols, rows)))
+				`exec %s"], "tty":true}`, cols, rows, command)))
 	resp, err := r.makeReq(req)
 	if err != nil {
 		fmt.Println("Failed to get access token: ", err.Error())
@@ -244,17 +245,17 @@ func (r *RancherAPI) getWSConn(wsUrl string) *websocket.Conn {
 	return conn
 }
 
-func (r *RancherAPI) GetContainerConn(name string) *websocket.Conn {
+func (r *RancherAPI) GetContainerConn(name string, command string) *websocket.Conn {
 	fmt.Println("Searching for container " + name)
 	url := r.containerUrl(name)
 	fmt.Println("Getting access token")
-	wsurl := r.getWsUrl(url)
+	wsurl := r.getWsUrl(url, command)
 	fmt.Println("SSH into container ...")
 	return r.getWSConn(wsurl)
 }
 
 func ReadConfig() *Config {
-	app := kingpin.New("rancherssh", USAGE)
+	app := kingpin.New("rancherexec", USAGE)
 	app.Author(AUTHOR)
 	app.Version(VERSION)
 	app.HelpFlag.Short('h')
@@ -265,17 +266,18 @@ func ReadConfig() *Config {
 
 	viper.SetConfigName("config")            // name of config file (without extension)
 	viper.AddConfigPath(".")                 // call multiple times to add many search paths
-	viper.AddConfigPath("$HOME/.rancherssh") // call multiple times to add many search paths
-	viper.AddConfigPath("/etc/rancherssh/")  // path to look for the config file in
+	viper.AddConfigPath("$HOME/.rancherexec") // call multiple times to add many search paths
+	viper.AddConfigPath("/etc/rancherexec/")  // path to look for the config file in
 	viper.ReadInConfig()
 
-	viper.SetEnvPrefix("rancherssh")
+	viper.SetEnvPrefix("rancherexec")
 	viper.AutomaticEnv()
 
 	var endpoint = app.Flag("endpoint", "Rancher server endpoint, https://your.rancher.server/v1 or https://your.rancher.server/v1/projects/xxx.").Default(viper.GetString("endpoint")).String()
 	var user = app.Flag("user", "Rancher API user/accesskey.").Default(viper.GetString("user")).String()
 	var password = app.Flag("password", "Rancher API password/secret.").Default(viper.GetString("password")).String()
 	var container = app.Arg("container", "Container name, fuzzy match").Required().String()
+	var command = app.Arg("command", "Command").Required().String()
 
 	app.Parse(os.Args[1:])
 
@@ -285,6 +287,7 @@ func ReadConfig() *Config {
 	}
 
 	return &Config{
+		Command:   *command,
 		Container: *container,
 		Endpoint:  *endpoint,
 		User:      *user,
@@ -300,12 +303,10 @@ func main() {
 		User:     config.User,
 		Password: config.Password,
 	}
-	conn := rancher.GetContainerConn(config.Container)
+	conn := rancher.GetContainerConn(config.Container, config.Command)
 
 	wt := WebTerm{
 		SocketConn: conn,
 	}
 	wt.Run()
-
-	fmt.Println("Good bye.")
 }
