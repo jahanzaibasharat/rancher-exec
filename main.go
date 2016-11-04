@@ -276,8 +276,8 @@ func ReadConfig() *Config {
 	var endpoint = app.Flag("endpoint", "Rancher server endpoint, https://your.rancher.server/v1 or https://your.rancher.server/v1/projects/xxx.").Default(viper.GetString("endpoint")).String()
 	var user = app.Flag("user", "Rancher API user/accesskey.").Default(viper.GetString("user")).String()
 	var password = app.Flag("password", "Rancher API password/secret.").Default(viper.GetString("password")).String()
+	var command = app.Flag("command", "Command").Default(viper.GetString("command")).String()
 	var container = app.Arg("container", "Container name, fuzzy match").Required().String()
-	var command = app.Arg("command", "Command").Required().String()
 
 	app.Parse(os.Args[1:])
 
