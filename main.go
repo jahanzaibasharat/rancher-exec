@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -76,6 +77,7 @@ func (w *WebTerm) wsWrite() {
 	for {
 		_, err = os.Stdin.Read(keybuf[0:1])
 		if err != nil {
+			if err == io.EOF { break }
 			w.errChn <- err
 			return
 		}
@@ -117,14 +119,16 @@ func (w *WebTerm) wsRead() {
 }
 
 func (w *WebTerm) SetRawtty(isRaw bool) {
-	if isRaw {
-		state, err := terminal.MakeRaw(int(os.Stdin.Fd()))
-		if err != nil {
-			panic(err)
+	if terminal.IsTerminal(int(os.Stdin.Fd())) {
+		if isRaw {
+			state, err := terminal.MakeRaw(int(os.Stdin.Fd()))
+			if err != nil {
+				panic(err)
+			}
+			w.ttyState = state
+		} else {
+			terminal.Restore(int(os.Stdin.Fd()), w.ttyState)
 		}
-		w.ttyState = state
-	} else {
-		terminal.Restore(int(os.Stdin.Fd()), w.ttyState)
 	}
 }
 
@@ -218,13 +222,20 @@ func (r *RancherAPI) containerUrl(name string) string {
 }
 
 func (r *RancherAPI) getWsUrl(url string, command string) string {
-	cols, rows, _ := terminal.GetSize(int(os.Stdin.Fd()))
-	req, _ := http.NewRequest("POST", url+"?action=execute",
-		strings.NewReader(fmt.Sprintf(
+	if terminal.IsTerminal(int(os.Stdin.Fd())) {
+		cols, rows, _ := terminal.GetSize(int(os.Stdin.Fd()))
+		command = fmt.Sprintf(
 			`{"attachStdin":true, "attachStdout":true,`+
 				`"command":["/bin/sh", "-c", "TERM=xterm-256color; export TERM; `+
 				`stty cols %d rows %d; `+
-				`exec %s"], "tty":true}`, cols, rows, command)))
+				`exec %s"], "tty":true}`, cols, rows, command)
+	} else {
+		command = fmt.Sprintf(
+			`{"attachStdin":true, "attachStdout":true,`+
+				`"command":["/bin/sh", "-c", "TERM=xterm-256color; export TERM; `+
+				`exec %s"], "tty":true}`, command)
+	}
+	req, _ := http.NewRequest("POST", url+"?action=execute",strings.NewReader(command))
 	resp, err := r.makeReq(req)
 	if err != nil {
 		fmt.Println("Failed to get access token: ", err.Error())
