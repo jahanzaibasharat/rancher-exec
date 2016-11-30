@@ -16,6 +16,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/spf13/viper"
+	"bufio"
+	"strconv"
 )
 
 const (
@@ -44,9 +46,9 @@ Configuration:
         password: your_access_password
 
     We accept environment variables as well:
-        SSHRANCHER_ENDPOINT=https://your.rancher.server/v1   // Or https://rancher.server/v1/projects/xxxx
-        SSHRANCHER_USER=your_access_key
-        SSHRANCHER_PASSWORD=your_access_password
+        RANCHEREXEC_ENDPOINT=https://your.rancher.server/v1   // Or https://rancher.server/v1/projects/xxxx
+        RANCHEREXEC_USER=your_access_key
+        RANCHEREXEC_PASSWORD=your_access_password
 `
 )
 
@@ -99,10 +101,20 @@ func (w *WebTerm) wsRead() {
 	var err error
 	var raw []byte
 	var out []byte
+	var lastline string
 	for {
 		_, raw, err = w.SocketConn.ReadMessage()
 		if err != nil {
 			if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+				scanner := bufio.NewScanner(strings.NewReader(string(out)))
+				for scanner.Scan() {
+					lastline = scanner.Text()
+				}
+				exitcode, err := strconv.Atoi(lastline)
+				if err != nil { panic(err) }
+				if exitcode != 0 {
+					os.Exit(exitcode)
+				}
 				w.errChn <- nil
 			} else {
 				w.errChn <- err
@@ -191,6 +203,10 @@ func (r *RancherAPI) containerUrl(name string) string {
 		fmt.Println("Failed to communicate with rancher API: " + err.Error())
 		os.Exit(1)
 	}
+	if resp["type"] == "error" {
+		fmt.Println(resp["message"])
+		os.Exit(1)
+	}
 	data := resp["data"].([]interface{})
 	var choice = 1
 	if len(data) == 0 {
@@ -228,15 +244,20 @@ func (r *RancherAPI) getWsUrl(url string, command string) string {
 			`{"attachStdin":true, "attachStdout":true,`+
 				`"command":["/bin/sh", "-c", "TERM=xterm-256color; export TERM; `+
 				`stty cols %d rows %d; `+
-				`exec %s"], "tty":true}`, cols, rows, command)
+				`%s; echo $?"], "tty":true}`, cols, rows, command)
 	} else {
 		command = fmt.Sprintf(
 			`{"attachStdin":true, "attachStdout":true,`+
 				`"command":["/bin/sh", "-c", "TERM=xterm-256color; export TERM; `+
-				`exec %s"], "tty":true}`, command)
+				`%s; echo $?"], "tty":true}`, command)
 	}
 	req, _ := http.NewRequest("POST", url+"?action=execute",strings.NewReader(command))
 	resp, err := r.makeReq(req)
+	if resp["type"] == "error" {
+		fmt.Println(command)
+		fmt.Println(resp["message"])
+		os.Exit(1)
+	}
 	if err != nil {
 		fmt.Println("Failed to get access token: ", err.Error())
 		os.Exit(1)
