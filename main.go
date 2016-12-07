@@ -35,35 +35,35 @@ Configuration:
 
     If you want to use JSON format, create a config.json in the folders with content:
         {
-            "endpoint": "https://rancher.server/v1", // Or "https://rancher.server/v1/projects/xxxx"
-            "user": "your_access_key",
-            "password": "your_access_password"
+            "url": "https://rancher.server/v1", // Or "https://rancher.server/v1/projects/xxxx"
+            "access_key": "your_access_key",
+            "secret_key": "your_access_secret_key"
         }
 
     If you want to use YAML format, create a config.yml with content:
-        endpoint: https://your.rancher.server/v1 // Or https://rancher.server/v1/projects/xxxx
-        user: your_access_key
-        password: your_access_password
+        url: https://your.rancher.server/v1 // Or https://rancher.server/v1/projects/xxxx
+        access_key: your_access_key
+        secret_key: your_access_secret_key
 
     We accept environment variables as well:
-        RANCHEREXEC_ENDPOINT=https://your.rancher.server/v1   // Or https://rancher.server/v1/projects/xxxx
-        RANCHEREXEC_USER=your_access_key
-        RANCHEREXEC_PASSWORD=your_access_password
+        RANCHER_URL=https://your.rancher.server/v1   // Or https://rancher.server/v1/projects/xxxx
+        RANCHER_ACCESS_KEY=your_access_key
+        RANCHER_SECRET_KEY=your_access_secret_key
 `
 )
 
 type Config struct {
 	Command   string
 	Container string
-	Endpoint  string
-	User      string
-	Password  string
+	Url  string
+	Access_key      string
+	Secret_key  string
 }
 
 type RancherAPI struct {
-	Endpoint string
-	User     string
-	Password string
+	Url string
+	Access_key     string
+	Secret_key string
 }
 
 type WebTerm struct {
@@ -159,18 +159,23 @@ func (w *WebTerm) Run() {
 	}
 }
 
-func (r *RancherAPI) formatEndpoint() string {
-	if r.Endpoint[len(r.Endpoint)-1:len(r.Endpoint)] == "/" {
-		return r.Endpoint[0 : len(r.Endpoint)-1]
+func (r *RancherAPI) formatUrl() string {
+	var Url string
+	if r.Url[len(r.Url)-1:len(r.Url)] == "/" {
+		Url = r.Url[0 : len(r.Url)-1]
 	} else {
-		return r.Endpoint
+		Url = r.Url
 	}
+	if !strings.Contains(Url, "/v1/") {
+		Url = Url + "/v1"
+	}
+	return Url
 }
 
 func (r *RancherAPI) makeReq(req *http.Request) (map[string]interface{}, error) {
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Content-Type", "application/json")
-	req.SetBasicAuth(r.User, r.Password)
+	req.SetBasicAuth(r.Access_key, r.Secret_key)
 
 	cli := http.Client{}
 	resp, err := cli.Do(req)
@@ -192,7 +197,7 @@ func (r *RancherAPI) makeReq(req *http.Request) (map[string]interface{}, error) 
 }
 
 func (r *RancherAPI) containerUrl(name string) string {
-	req, _ := http.NewRequest("GET", r.formatEndpoint()+"/containers/", nil)
+	req, _ := http.NewRequest("GET", r.formatUrl()+"/containers/", nil)
 	q := req.URL.Query()
 	q.Add("name_like", strings.Replace(name, "*", "%", -1))
 	q.Add("state", "running")
@@ -218,7 +223,8 @@ func (r *RancherAPI) containerUrl(name string) string {
 		for i, _ctn := range data {
 			ctn := _ctn.(map[string]interface{})
 			if _, ok := ctn["data"]; ok {
-				fmt.Println(fmt.Sprintf("[%d] %s, Container ID %s in project %s, IP Address %s on Host %s", i+1, ctn["name"].(string), ctn["id"].(string), ctn["accountId"].(string), ctn["data"].(map[string]interface{})["fields"].(map[string]interface{})["primaryIpAddress"].(string), ctn["data"].(map[string]interface{})["fields"].(map[string]interface{})["dockerHostIp"].(string)))
+				primaryIpAddress, _ := ctn["data"].(map[string]interface{})["fields"].(map[string]interface{})["primaryIpAddress"].(string)
+				fmt.Println(fmt.Sprintf("[%d] %s, Container ID %s in project %s, IP Address %s on Host %s", i+1, ctn["name"].(string), ctn["id"].(string), ctn["accountId"].(string), primaryIpAddress, ctn["data"].(map[string]interface{})["fields"].(map[string]interface{})["dockerHostIp"].(string)))
 			} else {
 				fmt.Println(fmt.Sprintf("[%d] %s, Container ID %s in project %s, IP Address %s", i+1, ctn["name"].(string), ctn["id"].(string), ctn["accountId"].(string), ctn["primaryIpAddress"].(string)))
 			}
@@ -229,11 +235,12 @@ func (r *RancherAPI) containerUrl(name string) string {
 	}
 	ctn := data[choice-1].(map[string]interface{})
 	if _, ok := ctn["data"]; ok {
-		fmt.Println(fmt.Sprintf("Target Container: %s, ID %s in project %s, Addr %s on Host %s", ctn["name"].(string), ctn["id"].(string), ctn["accountId"].(string), ctn["data"].(map[string]interface{})["fields"].(map[string]interface{})["primaryIpAddress"].(string), ctn["data"].(map[string]interface{})["fields"].(map[string]interface{})["dockerHostIp"].(string)))
+		primaryIpAddress, _ := ctn["data"].(map[string]interface{})["fields"].(map[string]interface{})["primaryIpAddress"].(string)
+		fmt.Println(fmt.Sprintf("Target Container: %s, ID %s in project %s, Addr %s on Host %s", ctn["name"].(string), ctn["id"].(string), ctn["accountId"].(string), primaryIpAddress, ctn["data"].(map[string]interface{})["fields"].(map[string]interface{})["dockerHostIp"].(string)))
 	} else {
 		fmt.Println(fmt.Sprintf("Target Container: %s, ID %s in project %s, Addr %s", ctn["name"].(string), ctn["id"].(string), ctn["accountId"].(string), ctn["primaryIpAddress"].(string)))
 	}
-	return r.formatEndpoint() + fmt.Sprintf(
+	return r.formatUrl() + fmt.Sprintf(
 		"/containers/%s/", ctn["id"].(string))
 }
 
@@ -266,9 +273,9 @@ func (r *RancherAPI) getWsUrl(url string, command string) string {
 }
 
 func (r *RancherAPI) getWSConn(wsUrl string) *websocket.Conn {
-	endpoint := r.formatEndpoint()
+	url := r.formatUrl()
 	header := http.Header{}
-	header.Add("Origin", endpoint)
+	header.Add("Origin", url)
 	conn, _, err := websocket.DefaultDialer.Dial(wsUrl, header)
 	if err != nil {
 		fmt.Println("We couldn't connect to this container: ", err.Error())
@@ -292,9 +299,9 @@ func ReadConfig() *Config {
 	app.Version(VERSION)
 	app.HelpFlag.Short('h')
 
-	viper.SetDefault("endpoint", "")
-	viper.SetDefault("user", "")
-	viper.SetDefault("password", "")
+	viper.SetDefault("url", "")
+	viper.SetDefault("access_key", "")
+	viper.SetDefault("secret_key", "")
 
 	viper.SetConfigName("config")            // name of config file (without extension)
 	viper.AddConfigPath(".")                 // call multiple times to add many search paths
@@ -302,28 +309,28 @@ func ReadConfig() *Config {
 	viper.AddConfigPath("/etc/rancherexec/")  // path to look for the config file in
 	viper.ReadInConfig()
 
-	viper.SetEnvPrefix("rancherexec")
+	viper.SetEnvPrefix("rancher")
 	viper.AutomaticEnv()
 
-	var endpoint = app.Flag("endpoint", "Rancher server endpoint, https://your.rancher.server/v1 or https://your.rancher.server/v1/projects/xxx.").Default(viper.GetString("endpoint")).String()
-	var user = app.Flag("user", "Rancher API user/accesskey.").Default(viper.GetString("user")).String()
-	var password = app.Flag("password", "Rancher API password/secret.").Default(viper.GetString("password")).String()
+	var url = app.Flag("url", "Rancher server url, https://your.rancher.server/v1 or https://your.rancher.server/v1/projects/xxx.").Default(viper.GetString("url")).String()
+	var access_key = app.Flag("access_key", "Rancher API access_key/accesskey.").Default(viper.GetString("access_key")).String()
+	var secret_key = app.Flag("secret_key", "Rancher API secret_key/secret.").Default(viper.GetString("secret_key")).String()
 	var command = app.Flag("command", "Command").Default(viper.GetString("command")).String()
 	var container = app.Arg("container", "Container name, fuzzy match").Required().String()
 
 	app.Parse(os.Args[1:])
 
-	if *endpoint == "" || *user == "" || *password == "" || *container == "" || *command =="" {
+	if *url == "" || *access_key == "" || *secret_key == "" || *container == "" || *command =="" {
 		app.Usage(os.Args[1:])
 		os.Exit(1)
 	}
 
 	return &Config{
-		Command:   *command,
+		Command: *command,
 		Container: *container,
-		Endpoint:  *endpoint,
-		User:      *user,
-		Password:  *password,
+		Url: *url,
+		Access_key: *access_key,
+		Secret_key: *secret_key,
 	}
 
 }
@@ -331,9 +338,9 @@ func ReadConfig() *Config {
 func main() {
 	config := ReadConfig()
 	rancher := RancherAPI{
-		Endpoint: config.Endpoint,
-		User:     config.User,
-		Password: config.Password,
+		Url: config.Url,
+		Access_key: config.Access_key,
+		Secret_key: config.Secret_key,
 	}
 	conn := rancher.GetContainerConn(config.Container, config.Command)
 
