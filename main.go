@@ -230,8 +230,20 @@ func (r *RancherAPI) containerUrl(name string) string {
 			}
 		}
 		fmt.Println("--------------------------------------------")
+		scanner := bufio.NewScanner(os.Stdin)
 		fmt.Print("Which one you want to connect: ")
-		fmt.Scan(&choice)
+		ChoiceLoop:
+		for {
+			for scanner.Scan() {
+				choice, err = strconv.Atoi(scanner.Text())
+				if err != nil {
+					fmt.Print("Please enter correct number: ")
+					break
+				} else {
+					break ChoiceLoop
+				}
+			}
+		}
 	}
 	ctn := data[choice-1].(map[string]interface{})
 	if _, ok := ctn["data"]; ok {
@@ -319,6 +331,7 @@ func ReadConfig() *Config {
 	var container = app.Arg("container", "Container name, fuzzy match").Required().String()
 
 	app.Parse(os.Args[1:])
+	fmt.Println(os.Args[1:])
 
 	if *url == "" || *access_key == "" || *secret_key == "" || *container == "" || *command =="" {
 		app.Usage(os.Args[1:])
